@@ -1,123 +1,196 @@
-# Advanced Path Traversal Scanner
+# path-checker
 
-A professional tool for detecting path traversal vulnerabilities in web applications. This scanner systematically tests for directory traversal issues by attempting to access files outside the web application's intended directory structure.
+`path-checker` is a Python CLI tool for testing **path traversal / directory traversal** issues in web applications.
+
+It sends crafted payloads to a target parameter, tries multiple traversal encodings, and highlights suspicious responses that may indicate unintended file access.
+
+> Use only against systems you own or are explicitly authorized to test.
+
+---
 
 ## Features
 
-- **Advanced Traversal Techniques**: Tests multiple traversal methods including:
-  - Standard `../` traversal
-  - URL-encoded `%2e%2e%2f`
-  - Double URL-encoded `%252e%252e%252f`
-  - Mixed encoding `..%2f`
-  - Path normalization bypass
-- **Multi-threaded Scanning**: Uses concurrent.futures for efficient testing
-- **Target Validation**: Automatically checks target URL accessibility before scanning
-- **404 Handling**: Can optionally ignore 404 errors with --ignore-404 flag
-- **Response Analysis**: 
-  - Status code monitoring
-  - Content length tracking
-  - Response time measurement
-  - Header analysis
-  - Content preview with first 200 characters
-- **Flexible Configuration**: 
-  - Customizable traversal depth
-  - Adjustable thread count
-  - Proxy support
-  - Custom headers and cookies
-  - User-agent customization
-- **Security Features**: 
-  - SSL certificate validation (optional)
-  - Input validation
-  - Request timeout handling
-  - Error logging and debugging
+- Tests common traversal payload styles:
+  - `../`
+  - URL-encoded traversal (`%2e%2e%2f`)
+  - double URL-encoded traversal (`%252e%252e%252f`)
+  - mixed encoding (`..%2f`)
+  - simple normalization bypass attempts
+- Supports custom endpoint + vulnerable parameter targeting
+- Multi-threaded request execution
+- Optional proxy support for Burp Suite / debugging
+- Optional cookies and custom User-Agent
+- Optional SSL verification disable (`--insecure`)
+- Basic response metadata collection:
+  - status code
+  - content length
+  - response time
+  - small content preview
+- Result export to a text file
+
+---
 
 ## Requirements
 
-- Python 3.6+
-- Required packages:
-  - requests
-  - rich
+- Python 3.8+
+- Packages:
+  - `requests`
+  - `rich`
+
+Install dependencies:
+
+```bash
+pip install requests rich
+```
+
+---
 
 ## Installation
 
 ```bash
-# Clone the repository or download the script
-git clone https://github.com/yourusername/path-traversal.git
-cd path-traversal
-
-# Install required packages
+git clone https://github.com/Nutzh/path-checker.git
+cd path-checker
 pip install requests rich
 ```
 
+---
+
 ## Usage
 
-Basic usage:
+### Basic example
 
 ```bash
 python checker.py -u "http://example.com" -p "file"
 ```
 
-Advanced usage:
+### Test a specific endpoint
 
-```bash
-python checker.py -u "http://example.com" -e "download" -p "file" -d 10 --threads 10 --output results.txt --verbose
-```
-
-### Command Line Arguments
-
-| Option | Long Option | Description | Default |
-|--------|-------------|-------------|----------|
-| `-u` | `--url` | Target URL (required) | - |
-| `-e` | `--endpoint` | Endpoint to test (default: none) | - |
-| `-p` | `--parameter` | Query parameter name (required) | - |
-| `-d` | `--depth` | Maximum directory traversal depth | 10 |
-| `-t` | `--timeout` | Request timeout in seconds | 5.0 |
-| `-o` | `--output` | Output file for results | - |
-| `-v` | `--verbose` | Enable verbose output | - |
-| `--threads` | | Number of concurrent threads | 10 |
-| `--proxy` | | Proxy to use (e.g., http://127.0.0.1:8080) | --- |
-| `--user-agent` | | Custom User-Agent header | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 |
-| `--cookies` | | Cookies to include with requests (format: name1=value1; name2=value2) | - |
-| `--insecure` | | Disable SSL certificate verification | - |
-| `--files` | | Comma-separated list of files to test | - |
-| `--ignore-404` | | Continue scanning even if target URL returns 404 | - |
-
-## Examples
-
-Test for path traversal in a file parameter:
-```bash
-python checker.py -u "http://example.com" -p "file"
-```
-
-Test with specific endpoint:
 ```bash
 python checker.py -u "http://example.com" -e "download" -p "ticket"
 ```
 
-Test with authentication cookies:
-```bash
-python checker.py -u "http://example.com" -p "file" --cookies "session=abc123; auth=xyz789"
-```
+### Use Burp as a proxy
 
-Test through a proxy:
 ```bash
 python checker.py -u "http://example.com" -p "file" --proxy "http://127.0.0.1:8080"
 ```
 
-Test specific files:
+### Test POST form parameters
+
 ```bash
-python checker.py -u "http://example.com" -p "file" --files "/etc/passwd,wp-config.php,config.php"
+python checker.py -u "http://example.com" -e "download" -p "file" --method post
 ```
 
-## Ethical Usage
+### Test path-segment injection
 
-This tool is intended for:
-- Security professionals conducting authorized penetration tests
-- System administrators testing their own systems
-- Developers checking for vulnerabilities in their code
+```bash
+python checker.py -u "http://example.com" -e "download" -p "file" --injection-location path
+```
 
-**Always obtain proper authorization before testing any system you don't own.**
+### Add cookies
+
+```bash
+python checker.py -u "http://example.com" -p "file" --cookies "session=abc123; auth=xyz789"
+```
+
+### Save results
+
+```bash
+python checker.py -u "http://example.com" -e "download" -p "file" -o results.txt
+```
+
+### Test custom files only
+
+```bash
+python checker.py -u "http://example.com" -p "file" --files "/etc/passwd,wp-config.php,.env"
+```
+
+---
+
+## Command-line options
+
+| Option | Description | Default |
+|---|---|---|
+| `-u`, `--url` | Base target URL | required |
+| `-e`, `--endpoint` | Endpoint to test | empty |
+| `-p`, `--parameter` | Query parameter to inject | required |
+| `-d`, `--depth` | Maximum traversal depth | `10` |
+| `-t`, `--timeout` | Request timeout in seconds | `5.0` |
+| `-o`, `--output` | Save findings to a file | none |
+| `-v`, `--verbose` | Verbose logging | off |
+| `--threads` | Number of concurrent threads | `10` |
+| `--proxy` | Proxy URL | none |
+| `--user-agent` | Custom User-Agent | browser-like default |
+| `--cookies` | Cookies string (`k=v; k2=v2`) | none |
+| `--insecure` | Disable SSL verification | off |
+| `--files` | Comma-separated file list | built-in defaults |
+| `--ignore-404` | Continue even if target validation returns 404 | off |
+| `--method` | HTTP method: `get` or `post` | `get` |
+| `--injection-location` | Inject in query parameter or path segment | `query` |
+
+---
+
+## Example workflow
+
+1. Identify a suspicious file/path parameter in the target application.
+2. Route traffic through Burp if needed.
+3. Run `path-checker` with a focused endpoint and parameter.
+4. Review status codes, content length, and preview text.
+5. Manually confirm any suspicious hit before reporting it.
+
+Example:
+
+```bash
+python checker.py \
+  -u "https://target.tld" \
+  -e "download" \
+  -p "file" \
+  --proxy "http://127.0.0.1:8080" \
+  --threads 5 \
+  --verbose
+```
+
+---
+
+## Current limitations
+
+This tool is useful for quick testing, but it is still a lightweight scanner. Current limitations include:
+
+- it treats `HTTP 200` as the main success signal
+- it does not yet use a strong baseline-diffing strategy
+- it can produce false positives if a target returns generic 200 pages
+- it currently focuses on query-parameter injection, not POST bodies or headers
+- it does not yet include automated confirmation logic for known file signatures
+
+---
+
+## Roadmap ideas
+
+Good next improvements would be:
+
+- baseline response comparison
+- smarter confidence scoring
+- POST / JSON / multipart parameter support
+- better deduplication
+- export formats like JSON/CSV
+- tests and CI
+- payload profiles by platform (Linux / Windows / PHP / Java)
+
+---
+
+## Ethical use
+
+This project is intended for:
+
+- authorized security assessments
+- lab environments
+- self-testing on systems you own
+
+Do **not** use it against targets without permission.
+
+---
 
 ## License
 
-[MIT License](LICENSE)
+No license file is currently present in the repository.
+If you want this project to be open-source in a clean way, add a `LICENSE` file (for example MIT).
