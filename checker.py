@@ -15,14 +15,9 @@ from typing import Dict, List, Optional, Tuple
 import requests
 import urllib3
 from requests.exceptions import RequestException
-from rich.console import Console
-from rich.logging import RichHandler
-from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
-from rich.table import Table
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-console = Console()
 logger = logging.getLogger("path_checker")
 _thread_local = threading.local()
 
@@ -131,7 +126,7 @@ class PathTraversalScanner:
     def _get_session(self) -> requests.Session:
         if not hasattr(_thread_local, "session"):
             session = requests.Session()
-            session.verify = not getattr(self, "insecure", False)
+            session.verify = not self.insecure
             if self.proxy:
                 session.proxies = {"http": self.proxy, "https": self.proxy}
             if self.cookies:
@@ -156,7 +151,12 @@ class PathTraversalScanner:
                 data=data,
                 json=json_data,
             )
-        return session.get(url, headers=self.headers, timeout=self.timeout, allow_redirects=allow_redirects)
+        return session.get(
+            url,
+            headers=self.headers,
+            timeout=self.timeout,
+            allow_redirects=allow_redirects,
+        )
 
     def validate_target_url(self) -> bool:
         endpoint_url = self._build_target_endpoint()
@@ -232,11 +232,17 @@ class PathTraversalScanner:
             reasons.append("matched /etc/passwd signature")
         if file_path == "/proc/self/environ" and (b"PATH=" in content or b"HOME=" in content):
             reasons.append("matched /proc/self/environ signature")
-        if filename.endswith(".env") and ("db_" in preview_lower or "secret" in preview_lower or "api_key" in preview_lower):
+        if filename.endswith(".env") and (
+            "db_" in preview_lower or "secret" in preview_lower or "api_key" in preview_lower
+        ):
             reasons.append("matched .env-like signature")
-        if "wp-config.php" in filename and ("db_name" in preview_lower or "db_password" in preview_lower):
+        if "wp-config.php" in filename and (
+            "db_name" in preview_lower or "db_password" in preview_lower
+        ):
             reasons.append("matched wp-config signature")
-        if filename.endswith((".ini", ".conf", ".cfg", ".yml", ".yaml", ".properties")) and ("=" in content_preview or ":" in content_preview):
+        if filename.endswith((".ini", ".conf", ".cfg", ".yml", ".yaml", ".properties")) and (
+            "=" in content_preview or ":" in content_preview
+        ):
             reasons.append("looks like config content")
         return reasons
 
@@ -275,11 +281,20 @@ class PathTraversalScanner:
         if guessed_type and guessed_type.split("/")[0] in content_type.lower():
             score += 1
             reasons.append("content-type matches requested file type")
-        elif any(x in content_type.lower() for x in ["octet-stream", "text/plain", "application/json", "application/xml"]):
+        elif any(x in content_type.lower() for x in [
+            "octet-stream",
+            "text/plain",
+            "application/json",
+            "application/xml",
+        ]):
             score += 1
             reasons.append("content-type looks file-like")
 
-        signature_hits = self._content_signature_match(result.file_path, result.content_preview, result.content)
+        signature_hits = self._content_signature_match(
+            result.file_path,
+            result.content_preview,
+            result.content,
+        )
         if signature_hits:
             score += 3
             reasons.extend(signature_hits)
@@ -294,14 +309,28 @@ class PathTraversalScanner:
             result.confidence = "medium"
         else:
             result.confidence = "low"
+
         result.reasons = reasons
         return result
 
-    def test_path_traversal(self, file_path: str, depth: int, encoding_type: str, payload: str) -> Optional[PathTraversalResult]:
+    def test_path_traversal(
+        self,
+        file_path: str,
+        depth: int,
+        encoding_type: str,
+        payload: str,
+    ) -> Optional[PathTraversalResult]:
         full_url, data, json_data = self._build_request_target(payload)
 
         if self.verbose:
-            logger.debug("Testing payload=%s depth=%s encoding=%s location=%s method=%s", payload, depth, encoding_type, self.injection_location, self.method)
+            logger.debug(
+                "Testing payload=%s depth=%s encoding=%s location=%s method=%s",
+                payload,
+                depth,
+                encoding_type,
+                self.injection_location,
+                self.method,
+            )
 
         try:
             start_time = time.time()
@@ -327,8 +356,21 @@ class PathTraversalScanner:
             headers=dict(response.headers),
             content=response.content[:1024],
         )
-        result = self.classify_result(result)
-        return result
+        return self.classify_result(result)
+
+    def _print_finding(self, result: PathTraversalResult) -> None:
+        print()
+        print(f"Potential finding: {result.url}")
+        print(f"File: {result.file_path}")
+        print(f"Depth: {result.traversal_depth} | Encoding: {result.encoding_type}")
+        print(
+            f"Status: {result.status_code} | Length: {result.content_length} | "
+            f"Confidence: {result.confidence}"
+        )
+        if result.reasons:
+            print("Reasons: " + "; ".join(result.reasons))
+        print(f"Preview: {result.content_preview[:120]}")
+        print("-" * 72)
 
     def scan_file(self, file_path: str) -> List[PathTraversalResult]:
         results = []
@@ -339,7 +381,13 @@ class PathTraversalScanner:
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.threads) as executor:
             future_to_payload = {
-                executor.submit(self.test_path_traversal, file_path, depth, encoding_type, payload): (payload, depth, encoding_type)
+                executor.submit(
+                    self.test_path_traversal,
+                    file_path,
+                    depth,
+                    encoding_type,
+                    payload,
+                ): (payload, depth, encoding_type)
                 for payload, depth, encoding_type in payloads
             }
 
@@ -347,7 +395,7 @@ class PathTraversalScanner:
                 payload, _, _ = future_to_payload[future]
                 try:
                     result = future.result()
-                except Exception as exc:  # pragma: no cover - defensive CLI catch
+                except Exception as exc:  # pragma: no cover
                     if self.verbose:
                         logger.error("Worker error for payload %s: %s", payload, exc)
                     continue
@@ -355,21 +403,19 @@ class PathTraversalScanner:
                 if not result:
                     continue
 
-                dedupe_key = (result.file_path, result.traversal_depth, result.encoding_type, result.status_code, result.content_length)
+                dedupe_key = (
+                    result.file_path,
+                    result.traversal_depth,
+                    result.encoding_type,
+                    result.status_code,
+                    result.content_length,
+                )
                 if dedupe_key in self.found_vulnerabilities:
                     continue
+
                 self.found_vulnerabilities.add(dedupe_key)
                 results.append(result)
-
-                color = {"high": "red", "medium": "yellow", "low": "white"}[result.confidence]
-                console.print(f"\n[{color}]Potential finding[{color}] {result.url}")
-                console.print(f"File: {result.file_path}")
-                console.print(f"Depth: {result.traversal_depth} | Encoding: {result.encoding_type}")
-                console.print(f"Status: {result.status_code} | Length: {result.content_length} | Confidence: {result.confidence}")
-                if result.reasons:
-                    console.print("Reasons: " + "; ".join(result.reasons))
-                console.print(f"Preview: {result.content_preview[:120]}")
-                console.print("-" * 72)
+                self._print_finding(result)
 
         return results
 
@@ -381,25 +427,22 @@ class PathTraversalScanner:
         self.build_baseline()
         all_results = []
 
-        console.print("\nStarting path traversal scan")
-        console.print(f"Target: {self._build_target_endpoint()}")
-        console.print(f"Method: {self.method.upper()} | Injection: {self.injection_location}")
+        print()
+        print("Starting path traversal scan")
+        print(f"Target: {self._build_target_endpoint()}")
+        print(f"Method: {self.method.upper()} | Injection: {self.injection_location}")
         if self.baseline_response:
-            console.print(
-                f"Baseline -> status={self.baseline_response.status_code}, len={self.baseline_response.content_length}"
+            print(
+                "Baseline -> "
+                f"status={self.baseline_response.status_code}, "
+                f"len={self.baseline_response.content_length}"
             )
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("{task.description}"),
-            TimeElapsedColumn(),
-            console=console,
-        ) as progress:
-            task = progress.add_task("Scanning...", total=len(self.files_to_test))
-            for file_path in self.files_to_test:
-                results = self.scan_file(file_path)
-                all_results.extend(results)
-                progress.update(task, advance=1)
+        total_files = len(self.files_to_test)
+        for index, file_path in enumerate(self.files_to_test, start=1):
+            print(f"[{index}/{total_files}] Testing {file_path}")
+            results = self.scan_file(file_path)
+            all_results.extend(results)
 
         return all_results
 
@@ -415,6 +458,7 @@ class PathTraversalScanner:
             "baseline": asdict(self.baseline_response) if self.baseline_response else None,
             "results": [asdict(r) for r in results],
         }
+
         with open(self.output_file, "w", encoding="utf-8") as handle:
             if self.output_file.lower().endswith(".json"):
                 json.dump(serializable, handle, indent=2)
@@ -426,7 +470,9 @@ class PathTraversalScanner:
                 handle.write(f"Parameter: {self.parameter}\n")
                 if self.baseline_response:
                     handle.write(
-                        f"Baseline: status={self.baseline_response.status_code}, len={self.baseline_response.content_length}\n"
+                        "Baseline: "
+                        f"status={self.baseline_response.status_code}, "
+                        f"len={self.baseline_response.content_length}\n"
                     )
                 handle.write("\n")
                 for result in results:
@@ -438,56 +484,73 @@ class PathTraversalScanner:
                     handle.write(f"Reasons: {'; '.join(result.reasons)}\n")
                     handle.write(f"Preview: {result.content_preview}\n")
                     handle.write("-" * 60 + "\n")
+
         logger.info("Results saved to %s", self.output_file)
 
     def print_summary(self, results: List[PathTraversalResult]) -> None:
-        console.print("\nScan Summary")
-        console.print(f"Target: {self._build_target_endpoint()}")
-        console.print(f"Method: {self.method.upper()} | Injection: {self.injection_location}")
-        console.print(f"Findings: {len(results)}")
+        print()
+        print("Scan Summary")
+        print(f"Target: {self._build_target_endpoint()}")
+        print(f"Method: {self.method.upper()} | Injection: {self.injection_location}")
+        print(f"Findings: {len(results)}")
 
         if not results:
-            console.print("No suspicious results found with the current configuration.")
+            print("No suspicious results found with the current configuration.")
             return
 
-        table = Table(show_header=True, header_style="bold cyan")
-        table.add_column("Confidence")
-        table.add_column("Status")
-        table.add_column("File")
-        table.add_column("Depth")
-        table.add_column("Encoding")
-        table.add_column("Length")
-
-        for result in sorted(results, key=lambda r: {"high": 0, "medium": 1, "low": 2}[r.confidence]):
-            table.add_row(
-                result.confidence,
-                str(result.status_code),
-                result.file_path,
-                str(result.traversal_depth),
-                result.encoding_type,
-                str(result.content_length),
+        print("-" * 72)
+        print("confidence | status | file | depth | encoding | length")
+        print("-" * 72)
+        for result in sorted(
+            results,
+            key=lambda r: {"high": 0, "medium": 1, "low": 2}[r.confidence],
+        ):
+            print(
+                f"{result.confidence:10} | {result.status_code:6} | "
+                f"{result.file_path:20} | {result.traversal_depth:5} | "
+                f"{result.encoding_type:20} | {result.content_length}"
             )
-        console.print(table)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Path traversal scanner")
     parser.add_argument("-u", "--url", required=True, help="Base target URL")
     parser.add_argument("-e", "--endpoint", default="", help="Endpoint to test")
-    parser.add_argument("-p", "--parameter", required=True, help="Parameter name to inject (query/form field)")
+    parser.add_argument(
+        "-p",
+        "--parameter",
+        required=True,
+        help="Parameter name to inject (query/form field)",
+    )
     parser.add_argument("-d", "--depth", type=int, default=10, help="Maximum traversal depth")
     parser.add_argument("-t", "--timeout", type=float, default=5.0, help="Request timeout in seconds")
     parser.add_argument("-o", "--output", help="Write findings to a text or JSON file")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
     parser.add_argument("--threads", type=int, default=10, help="Number of concurrent threads")
     parser.add_argument("--proxy", help="Proxy URL, e.g. http://127.0.0.1:8080")
-    parser.add_argument("--user-agent", default="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36", help="Custom User-Agent")
+    parser.add_argument(
+        "--user-agent",
+        default=(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36"
+        ),
+        help="Custom User-Agent",
+    )
     parser.add_argument("--cookies", help="Cookies string: name1=value1; name2=value2")
     parser.add_argument("--insecure", action="store_true", help="Disable SSL verification")
     parser.add_argument("--files", help="Comma-separated list of files to test")
-    parser.add_argument("--ignore-404", action="store_true", help="Continue even if validation returns 404")
+    parser.add_argument(
+        "--ignore-404",
+        action="store_true",
+        help="Continue even if validation returns 404",
+    )
     parser.add_argument("--method", choices=["get", "post"], default="get", help="HTTP method to use")
-    parser.add_argument("--injection-location", choices=["query", "path"], default="query", help="Inject payload into query parameter or path segment")
+    parser.add_argument(
+        "--injection-location",
+        choices=["query", "path"],
+        default="query",
+        help="Inject payload into query parameter or path segment",
+    )
     return parser.parse_args()
 
 
@@ -495,8 +558,7 @@ def configure_logging(verbose: bool) -> None:
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(message)s",
-        datefmt="[%X]",
-        handlers=[RichHandler(rich_tracebacks=True, console=console)],
+        handlers=[logging.StreamHandler(sys.stdout)],
     )
 
 
@@ -511,9 +573,9 @@ def main() -> None:
         scanner.print_summary(results)
         scanner.save_results(results)
     except KeyboardInterrupt:
-        console.print("\n[bold red]Scan interrupted by user[/bold red]")
+        print("\nScan interrupted by user")
         sys.exit(1)
-    except Exception as exc:  # pragma: no cover - CLI safety net
+    except Exception as exc:  # pragma: no cover
         logger.error("Unhandled error: %s", exc)
         if args.verbose:
             import traceback

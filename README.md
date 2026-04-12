@@ -35,12 +35,11 @@ It sends crafted payloads to a target parameter, tries multiple traversal encodi
 - Python 3.8+
 - Packages:
   - `requests`
-  - `rich`
 
 Install dependencies:
 
 ```bash
-pip install requests rich
+pip install requests
 ```
 
 ---
@@ -50,7 +49,7 @@ pip install requests rich
 ```bash
 git clone https://github.com/Nutzh/path-checker.git
 cd path-checker
-pip install requests rich
+pip install requests
 ```
 
 ---
@@ -156,11 +155,11 @@ python checker.py \
 
 This tool is useful for quick testing, but it is still a lightweight scanner. Current limitations include:
 
-- it treats `HTTP 200` as the main success signal
-- it does not yet use a strong baseline-diffing strategy
-- it can produce false positives if a target returns generic 200 pages
-- it currently focuses on query-parameter injection, not POST bodies or headers
-- it does not yet include automated confirmation logic for known file signatures
+- it is still a heuristic scanner and can produce false positives
+- baseline comparison exists, but it is still lightweight rather than deeply content-aware
+- POST form support and path injection exist, but JSON / multipart / cookie / header injection are not implemented yet
+- signature matching is useful but still limited to a small set of common file patterns
+- findings should still be manually confirmed before reporting
 
 ---
 
