@@ -11,12 +11,15 @@ It sends crafted payloads to a target parameter, tries multiple traversal encodi
 ## Features
 
 - Tests common traversal payload styles:
+  - direct file paths (`/etc/passwd`, `etc/passwd`)
   - `../`
   - URL-encoded traversal (`%2e%2e%2f`)
   - double URL-encoded traversal (`%252e%252e%252f`)
   - mixed encoding (`..%2f`)
+  - `....//` traversal bypass variants
   - simple normalization bypass attempts
 - Supports custom endpoint + vulnerable parameter targeting
+- Supports known path prefixes (for cases like `/var/www/images/...`)
 - Multi-threaded request execution
 - Optional proxy support for Burp Suite / debugging
 - Optional cookies and custom User-Agent
@@ -86,6 +89,12 @@ python checker.py -u "http://example.com" -e "download" -p "file" --method post
 python checker.py -u "http://example.com" -e "download" -p "file" --injection-location path
 ```
 
+### Test a known prefixed path
+
+```bash
+python checker.py -u "http://example.com" -e "image" -p "filename" --prefix "/var/www/images/" --files "/etc/passwd"
+```
+
 ### Add cookies
 
 ```bash
@@ -126,6 +135,7 @@ python checker.py -u "http://example.com" -p "file" --files "/etc/passwd,wp-conf
 | `--ignore-404` | Continue even if target validation returns 404 | off |
 | `--method` | HTTP method: `get` or `post` | `get` |
 | `--injection-location` | Inject in query parameter or path segment | `query` |
+| `--prefix` | Prepend a known base path/prefix to generated payloads | none |
 
 ---
 
