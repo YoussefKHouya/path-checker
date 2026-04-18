@@ -207,6 +207,9 @@ class PathTraversalScanner:
             paths_to_test.append(clean_path)
 
         for path in paths_to_test:
+            # Some targets accept direct absolute/relative file paths without traversal.
+            payloads.append((path, 0, "direct"))
+
             for depth in range(1, self.max_depth + 1):
                 payloads.append(("../" * depth + path, depth, "standard"))
                 payloads.append(("%2e%2e%2f" * depth + path, depth, "url-encoded"))
